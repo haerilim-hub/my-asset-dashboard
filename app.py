@@ -44,7 +44,6 @@ def load_data(url):
 st.set_page_config(layout="wide", page_title="투자 자산 대시보드")
 
 st.sidebar.header("🔒 접근 권한 설정")
-# 비밀번호 입력창
 input_password = st.sidebar.text_input("관리자 비밀번호", type="password")
 
 df, error_msg = load_data(FIXED_URL)
@@ -57,7 +56,7 @@ if error_msg:
     st.error(error_msg)
 elif df is not None:
     
-    # [권한 설정 로직]
+    # [권한 설정]
     if input_password == ADMIN_PASSWORD:
         st.sidebar.success("🔓 관리자 모드")
         st.sidebar.divider()
@@ -72,7 +71,6 @@ elif df is not None:
             final_df = df
             display_title = "전체"
     else:
-        # 비밀번호가 틀리면 무조건 '공동'만 보여줌
         final_df = df[df['주체'] == '공동'] 
         display_title = "공동"
         
@@ -108,7 +106,7 @@ elif df is not None:
             st.divider()
             
             # 차트 영역
-            group_by = st.radio("분석 기준:", ['테마', '증권사', '종목명', '구분'], horizontal=True)
+            group_by = st.radio("차트 분석 기준:", ['테마', '증권사', '종목명', '구분'], horizontal=True)
             if group_by in daily_df.columns:
                 grouped = daily_df.groupby(group_by)[['평가액', '원금']].sum().reset_index().sort_values('평가액', ascending=False)
                 col1, col2 = st.columns(2)
@@ -118,25 +116,38 @@ elif df is not None:
                     st.plotly_chart(px.bar(grouped, x=group_by, y=['원금', '평가액'], barmode='group'), use_container_width=True)
             
             # ----------------------------------------------------------------
-            # ★ [수정됨] 하단 종목별 손익 테이블 (콤마 적용 완료!)
+            # ★ [업데이트] 순위 기준 선택 기능 추가 (종목별 vs 테마별)
             # ----------------------------------------------------------------
             st.divider()
-            st.subheader("🏆 종목별 평가손익 순위")
+            st.subheader("🏆 수익 랭킹 분석")
             
-            stock_rank = daily_df.groupby('종목명')[['평가손익', '평가액', '원금']].sum().reset_index()
-            stock_rank['수익률(%)'] = (stock_rank['평가손익'] / stock_rank['원금']) * 100
-            stock_rank = stock_rank.sort_values(by='평가손익', ascending=False)
+            # 순위 기준 선택 라디오 버튼
+            rank_option = st.radio("순위 기준 선택:", ['종목별', '테마별'], horizontal=True)
             
-            # 콤마(,)와 '원', '%'를 붙여주는 스타일 적용
-            st.dataframe(
-                stock_rank[['종목명', '평가손익', '수익률(%)', '평가액']].style.format({
-                    '평가손익': '{:,.0f}원',   # 예: 1,000,000원
-                    '평가액': '{:,.0f}원',     # 예: 5,000,000원
-                    '수익률(%)': '{:.2f}%'      # 예: 15.50%
-                }),
-                hide_index=True,
-                use_container_width=True
-            )
+            # 선택에 따른 컬럼명 설정
+            if rank_option == '종목별':
+                target_col = '종목명'
+            else:
+                target_col = '테마'
+            
+            # 데이터 집계 및 정렬
+            if target_col in daily_df.columns:
+                rank_df = daily_df.groupby(target_col)[['평가손익', '평가액', '원금']].sum().reset_index()
+                rank_df['수익률(%)'] = (rank_df['평가손익'] / rank_df['원금']) * 100
+                rank_df = rank_df.sort_values(by='평가손익', ascending=False)
+                
+                # 표 출력 (스타일 적용)
+                st.dataframe(
+                    rank_df[[target_col, '평가손익', '수익률(%)', '평가액']].style.format({
+                        '평가손익': '{:,.0f}원',
+                        '평가액': '{:,.0f}원',
+                        '수익률(%)': '{:.2f}%'
+                    }),
+                    hide_index=True,
+                    use_container_width=True
+                )
+            else:
+                st.warning(f"데이터에 '{target_col}' 정보가 없습니다.")
 
         else:
             st.warning("표시할 데이터가 없습니다.")
