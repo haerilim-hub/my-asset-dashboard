@@ -4,7 +4,7 @@ import plotly.express as px
 import re
 
 # ==========================================
-# 👇 [설정] 요청하신 비밀번호로 변경했습니다.
+# 👇 [설정] 관리자 비밀번호
 ADMIN_PASSWORD = "1855"
 # ==========================================
 
@@ -117,7 +117,9 @@ elif df is not None:
                 with col2:
                     st.plotly_chart(px.bar(grouped, x=group_by, y=['원금', '평가액'], barmode='group'), use_container_width=True)
             
-            # 하단 종목별 손익 테이블
+            # ----------------------------------------------------------------
+            # ★ [수정됨] 하단 종목별 손익 테이블 (콤마 적용 완료!)
+            # ----------------------------------------------------------------
             st.divider()
             st.subheader("🏆 종목별 평가손익 순위")
             
@@ -125,13 +127,13 @@ elif df is not None:
             stock_rank['수익률(%)'] = (stock_rank['평가손익'] / stock_rank['원금']) * 100
             stock_rank = stock_rank.sort_values(by='평가손익', ascending=False)
             
+            # 콤마(,)와 '원', '%'를 붙여주는 스타일 적용
             st.dataframe(
-                stock_rank[['종목명', '평가손익', '수익률(%)', '평가액']],
-                column_config={
-                    "평가손익": st.column_config.NumberColumn(format="%d원"),
-                    "평가액": st.column_config.NumberColumn(format="%d원"),
-                    "수익률(%)": st.column_config.NumberColumn(format="%.2f%%"),
-                },
+                stock_rank[['종목명', '평가손익', '수익률(%)', '평가액']].style.format({
+                    '평가손익': '{:,.0f}원',   # 예: 1,000,000원
+                    '평가액': '{:,.0f}원',     # 예: 5,000,000원
+                    '수익률(%)': '{:.2f}%'      # 예: 15.50%
+                }),
                 hide_index=True,
                 use_container_width=True
             )
