@@ -1,0 +1,98 @@
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import re
+
+# 👇 질문자님의 구글 시트 주소 (여기에 고정)
+FIXED_URL = "https://docs.google.com/spreadsheets/d/1OTxV5LBaOZeRRDBlcXJrSLOyNsW_smIii08DYKpl6dI/edit?gid=644186025#gid=644186025"
+
+@st.cache_data(ttl=60) # 60초마다 캐시 갱신 (새로고침 시 반영)
+def load_data(url):
+    try:
+        if "/d/" in url:
+            sheet_id = url.split('/d/')[1].split('/')[0]
+        else:
+            return None, "주소 형식이 이상합니다."
+        
+        gid_match = re.search(r'gid=(\d+)', url)
+        gid_param = f"&gid={gid_match.group(1)}" if gid_match else ""
+        csv_url = f'https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv{gid_param}'
+        
+        df = pd.read_csv(csv_url)
+        df.columns = df.columns.str.strip()
+        
+        cols_to_numeric = ['원금', '평가액', '평가손익']
+        for col in cols_to_numeric:
+            if col in df.columns and df[col].dtype == 'object':
+                df[col] = df[col].str.replace(',', '').astype(float)
+        
+        if '기준일자' in df.columns:
+            df['기준일자'] = pd.to_datetime(df['기준일자'])
+        else:
+            return None, "⚠️ '기준일자' 컬럼이 없습니다."
+
+        return df, None
+    except Exception as e:
+        return None, f"오류 발생: {e}"
+
+# --- 메인 화면 ---
+st.set_page_config(layout="wide", page_title="내 투자 자산 대시보드")
+
+st.sidebar.header("⚙️ 설정")
+if st.sidebar.button("🔄 데이터 새로고침"):
+    st.cache_data.clear()
+    st.rerun()
+
+df, error_msg = load_data(FIXED_URL)
+
+if error_msg:
+    st.error(error_msg)
+elif df is not None:
+    # 사이드바 필터
+    st.sidebar.divider()
+    st.sidebar.subheader("🕵️‍♀️ 필터링")
+    
+    subject_list = ['전체'] + list(df['주체'].unique())
+    selected_subject = st.sidebar.selectbox("주체 선택", subject_list)
+    
+    if selected_subject != '전체':
+        df = df[df['주체'] == selected_subject]
+        st.sidebar.info(f"👉 '{selected_subject}' 자산만 분석합니다.")
+    
+    # 탭 구성
+    tab1, tab2 = st.tabs(["📊 자산 비중", "📈 성장 추이"])
+
+    with tab1:
+        latest_date = df['기준일자'].max()
+        daily_df = df[df['기준일자'] == latest_date].copy()
+        
+        title_prefix = selected_subject if selected_subject != '전체' else "전체"
+        st.title(f"📊 {title_prefix} 자산 현황 ({latest_date.strftime('%Y-%m-%d')})")
+        
+        total_eval = daily_df['평가액'].sum()
+        total_invest = daily_df['원금'].sum()
+        total_profit = daily_df['평가손익'].sum()
+        roi = (total_profit / total_invest) * 100 if total_invest > 0 else 0
+        
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("평가금액", f"{total_eval:,.0f}원")
+        c2.metric("투자원금", f"{total_invest:,.0f}원")
+        c3.metric("평가손익", f"{total_profit:,.0f}원", delta_color="normal")
+        c4.metric("수익률", f"{roi:.2f}%")
+        
+        st.divider()
+        
+        group_by = st.radio("분석 기준:", ['테마', '증권사', '종목명', '구분'], horizontal=True)
+        if group_by in daily_df.columns:
+            grouped = daily_df.groupby(group_by)[['평가액', '원금']].sum().reset_index().sort_values('평가액', ascending=False)
+            col1, col2 = st.columns(2)
+            with col1:
+                st.plotly_chart(px.pie(grouped, values='평가액', names=group_by, hole=0.4), use_container_width=True)
+            with col2:
+                st.plotly_chart(px.bar(grouped, x=group_by, y=['원금', '평가액'], barmode='group'), use_container_width=True)
+
+    with tab2:
+        st.title("📈 자산 성장 그래프")
+        timeline = df.groupby('기준일자')[['평가액', '원금']].sum().reset_index()
+        st.plotly_chart(px.line(timeline, x='기준일자', y=['평가액', '원금'], markers=True), use_container_width=True)
+        st.plotly_chart(px.area(df, x='기준일자', y='평가액', color='테마'), use_container_width=True)
