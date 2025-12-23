@@ -27,7 +27,6 @@ def load_data(url):
         df = pd.read_csv(csv_url)
         df.columns = df.columns.str.strip()
         
-        # 숫자 변환 로직 (공백/콤마/괄호 처리)
         cols_to_numeric = ['원금', '평가액', '평가손익']
         for col in cols_to_numeric:
             if col in df.columns:
@@ -125,14 +124,11 @@ if menu == "📊 대시보드 보기":
                 rank_option = st.radio("순위 기준:", ['종목별', '테마별'], horizontal=True)
                 target_col = '종목명' if rank_option == '종목별' else '테마'
                 
-                # 스타일 함수
                 def style_negative_red(val):
                     color = 'red' if val < 0 else 'black'
                     return f'color: {color}'
-
                 def format_custom(val):
-                    if val < 0:
-                        return f"(-) {abs(val):,.0f}"
+                    if val < 0: return f"(-) {abs(val):,.0f}"
                     return f"{val:,.0f}"
 
                 if target_col in daily_df.columns:
@@ -158,11 +154,21 @@ if menu == "📊 대시보드 보기":
             st.title(f"📈 {display_title} 자산 성장 그래프")
             if not final_df.empty:
                 timeline = final_df.groupby('기준일자')[['평가액', '원금']].sum().reset_index()
-                st.plotly_chart(px.line(timeline, x='기준일자', y=['평가액', '원금'], markers=True), use_container_width=True)
-                st.plotly_chart(px.area(final_df, x='기준일자', y='평가액', color='테마'), use_container_width=True)
+                
+                # --- [그래프 1: 선 그래프] ---
+                fig_line = px.line(timeline, x='기준일자', y=['평가액', '원금'], markers=True)
+                # ★ X축을 1일 간격으로 강제 설정 (dtick="D1") 및 날짜 형식 지정
+                fig_line.update_xaxes(dtick="D1", tickformat="%Y-%m-%d")
+                st.plotly_chart(fig_line, use_container_width=True)
+                
+                # --- [그래프 2: 영역 그래프] ---
+                fig_area = px.area(final_df, x='기준일자', y='평가액', color='테마')
+                # ★ 여기도 X축 1일 간격 설정 적용
+                fig_area.update_xaxes(dtick="D1", tickformat="%Y-%m-%d")
+                st.plotly_chart(fig_area, use_container_width=True)
 
 # ==============================================================================
-# [PAGE 2] 데이터 입력 도우미 (날짜 선택 추가)
+# [PAGE 2] 데이터 입력 도우미
 # ==============================================================================
 elif menu == "📝 데이터 입력 도우미":
     st.title("📝 간편 데이터 생성기")
@@ -170,38 +176,41 @@ elif menu == "📝 데이터 입력 도우미":
     if input_password != ADMIN_PASSWORD:
         st.error("🔒 관리자 비밀번호를 입력해야 사용할 수 있습니다.")
     elif df is not None:
-        latest_date = df['기준일자'].max()
-        input_df = df[df['기준일자'] == latest_date].copy()
         
-        # [NEW] 0. 날짜 선택 기능 추가 (기본값: 오늘)
+        if 'editor_df' not in st.session_state:
+            latest_date = df['기준일자'].max()
+            input_df = df[df['기준일자'] == latest_date].copy()
+            def format_input(x):
+                try:
+                    val = float(x)
+                    if val < 0: return f"(-) {abs(val):,.0f}"
+                    return f"{val:,.0f}"
+                except: return "0"
+            input_df['원금'] = input_df['원금'].apply(format_input)
+            input_df['평가액'] = input_df['평가액'].apply(format_input)
+            st.session_state['editor_df'] = input_df
+
         col1, col2 = st.columns([1, 3])
         with col1:
-            st.info("📅 날짜를 선택하세요")
-            selected_date = st.date_input("기준일자 선택", datetime.now())
+            st.info("📅 기준일자")
+            selected_date = st.date_input("날짜 선택", datetime.now(), label_visibility="collapsed")
         with col2:
-            st.success(f"선택된 날짜: **{selected_date}**")
-            st.caption("이 날짜로 데이터가 생성됩니다.")
+            c_btn1, c_btn2 = st.columns(2)
+            if c_btn1.button("🔄 주체/구분별 자동 정렬"):
+                sorted_df = st.session_state['editor_df'].sort_values(by=['주체', '구분', '종목명'])
+                st.session_state['editor_df'] = sorted_df
+                st.rerun()
+            if c_btn2.button("↩️ 원본(최근데이터) 불러오기"):
+                del st.session_state['editor_df']
+                st.rerun()
 
-        # [1] 데이터 전처리 (입력창용)
-        def format_input(x):
-            try:
-                val = float(x)
-                if val < 0:
-                    return f"(-) {abs(val):,.0f}"
-                return f"{val:,.0f}"
-            except:
-                return "0"
-
-        input_df['원금'] = input_df['원금'].apply(format_input)
-        input_df['평가액'] = input_df['평가액'].apply(format_input)
-
-        st.subheader("1️⃣ 금액 수정 (입력용)")
-        st.caption("👇 마이너스 금액은 '(-) 숫자' 형태로 표시됩니다.")
+        st.subheader("1️⃣ 금액 수정 & 추가 (입력용)")
+        st.caption("👇 맨 아래 빈칸에 새 종목을 입력하고, 위 '자동 정렬' 버튼을 누르세요!")
         
         editable_cols = ['주체', '증권사', '구분', '종목명', '테마', '원금', '평가액']
         
         edited_df = st.data_editor(
-            input_df[editable_cols],
+            st.session_state['editor_df'][editable_cols],
             num_rows="dynamic",
             use_container_width=True,
             column_config={
@@ -209,65 +218,54 @@ elif menu == "📝 데이터 입력 도우미":
                 "평가액": st.column_config.TextColumn(validate="^[0-9, \-\(\)]+$"),
             }
         )
-        
-        # [2] 후처리 (계산용 - 공백제거 포함)
+        st.session_state['editor_df'] = edited_df
+
         def clean_currency_advanced(x):
             try:
                 str_val = str(x).replace(',', '').replace(' ', '')
                 if '(-)' in str_val or ('(' in str_val and ')' in str_val):
                     clean_str = str_val.replace('(-)', '').replace('(', '').replace(')', '')
                     return -float(clean_str)
-                elif '-' in str_val:
-                    return float(str_val)
+                elif '-' in str_val: return float(str_val)
                 return float(str_val)
-            except:
-                return 0.0
+            except: return 0.0
 
-        edited_df['평가액_num'] = edited_df['평가액'].apply(clean_currency_advanced)
-        edited_df['원금_num'] = edited_df['원금'].apply(clean_currency_advanced)
+        calc_df = edited_df.copy()
+        calc_df['평가액_num'] = calc_df['평가액'].apply(clean_currency_advanced)
+        calc_df['원금_num'] = calc_df['원금'].apply(clean_currency_advanced)
+        calc_df['평가손익'] = calc_df['평가액_num'] - calc_df['원금_num']
         
-        edited_df['평가손익'] = edited_df['평가액_num'] - edited_df['원금_num']
-        
-        # [3] 결과 미리보기
         st.subheader("2️⃣ 결과 미리보기")
         
-        preview_df = edited_df[['종목명', '원금_num', '평가액_num', '평가손익']].copy()
+        preview_df = calc_df[['종목명', '원금_num', '평가액_num', '평가손익']].copy()
         preview_df.columns = ['종목명', '원금', '평가액', '평가손익']
 
         def style_red_neg(val):
             return 'color: red' if val < 0 else 'color: black'
-
         def fmt_custom(val):
-            if val < 0:
-                return f"(-) {abs(val):,.0f}"
+            if val < 0: return f"(-) {abs(val):,.0f}"
             return f"{val:,.0f}"
 
         st.dataframe(
             preview_df.style
-            .format({
-                "원금": fmt_custom, 
-                "평가액": fmt_custom,
-                "평가손익": fmt_custom
-            })
+            .format({"원금": fmt_custom, "평가액": fmt_custom, "평가손익": fmt_custom})
             .map(style_red_neg, subset=['평가손익']),
             use_container_width=True
         )
 
         st.divider()
 
-        # [4] 최종 생성 (선택한 날짜 반영)
         if st.button("🚀 위 내용으로 데이터 생성하기"):
-            final_export_df = edited_df.copy()
+            final_export_df = calc_df.copy()
             final_export_df['원금'] = final_export_df['원금_num']
             final_export_df['평가액'] = final_export_df['평가액_num']
             
-            # 여기서 선택한 날짜(selected_date)를 넣습니다!
             final_export_df.insert(0, '기준일자', selected_date)
             target_order = ['기준일자', '주체', '증권사', '구분', '종목명', '테마', '원금', '평가액', '평가손익']
             
             try:
                 final_export_df = final_export_df[target_order]
-                st.success(f"✅ {selected_date} 날짜로 데이터가 생성되었습니다! 아래 내용을 복사하세요.")
+                st.success(f"✅ {selected_date} 날짜로 데이터 생성 완료!")
                 st.code(final_export_df.to_csv(index=False, header=False, sep='\t'), language='csv')
                 st.markdown(f"[👉 구글 시트 바로가기]({FIXED_URL})")
             except Exception as e:
