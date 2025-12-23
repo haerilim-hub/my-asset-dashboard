@@ -27,15 +27,19 @@ def load_data(url):
         df = pd.read_csv(csv_url)
         df.columns = df.columns.str.strip()
         
-        # 숫자 변환
+        # ★ [수정됨] 숫자 변환 로직 (공백 제거 기능 추가!)
         cols_to_numeric = ['원금', '평가액', '평가손익']
         for col in cols_to_numeric:
-            if col in df.columns and df[col].dtype == 'object':
-                df[col] = df[col].str.replace(',', '')
-                # 괄호나 (-)가 있으면 마이너스로 인식
+            if col in df.columns:
+                # 1. 일단 문자로 변환
+                df[col] = df[col].astype(str)
+                # 2. 콤마(,)와 공백( )을 모두 제거 (이게 핵심!)
+                df[col] = df[col].str.replace(',', '').str.replace(' ', '')
+                # 3. '(-)' 또는 괄호 '()'를 마이너스 기호 '-'로 통일
                 df[col] = df[col].str.replace('(-)', '-', regex=False)
                 df[col] = df[col].str.replace('(', '-', regex=False).str.replace(')', '', regex=False)
-                df[col] = df[col].astype(float)
+                # 4. 실수형(float)으로 변환 (에러 발생 시 0으로 처리)
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
         if '기준일자' in df.columns:
             df['기준일자'] = pd.to_datetime(df['기준일자'])
@@ -125,25 +129,22 @@ if menu == "📊 대시보드 보기":
                 rank_option = st.radio("순위 기준:", ['종목별', '테마별'], horizontal=True)
                 target_col = '종목명' if rank_option == '종목별' else '테마'
                 
-                # --- [스타일 함수 정의] ---
+                # --- 스타일 함수 ---
                 def style_negative_red(val):
-                    """음수면 빨간색, 아니면 검정색 반환"""
                     color = 'red' if val < 0 else 'black'
                     return f'color: {color}'
 
                 def format_custom(val):
-                    """음수면 (-) 1,000, 양수면 1,000 형식으로 반환"""
                     if val < 0:
                         return f"(-) {abs(val):,.0f}"
                     return f"{val:,.0f}"
-                # -------------------------
-                
+                # ------------------
+
                 if target_col in daily_df.columns:
                     rank_df = daily_df.groupby(target_col)[['평가손익', '평가액', '원금']].sum().reset_index()
                     rank_df['수익률(%)'] = (rank_df['평가손익'] / rank_df['원금']) * 100
                     rank_df = rank_df.sort_values(by='평가손익', ascending=False)
                     
-                    # 스타일 적용하여 표 그리기
                     st.dataframe(
                         rank_df[[target_col, '평가손익', '수익률(%)', '평가액']].style
                         .format({
@@ -151,7 +152,7 @@ if menu == "📊 대시보드 보기":
                             '평가액': format_custom,
                             '수익률(%)': '{:.2f}%'
                         })
-                        .map(style_negative_red, subset=['평가손익']), # 평가손익 컬럼에 색상 적용
+                        .map(style_negative_red, subset=['평가손익']),
                         hide_index=True,
                         use_container_width=True
                     )
@@ -179,7 +180,7 @@ elif menu == "📝 데이터 입력 도우미":
         input_df = df[df['기준일자'] == latest_date].copy()
         today = datetime.now().strftime("%Y-%m-%d")
         
-        # [1] 데이터 전처리: 숫자를 "(-) 1,000" 형식의 문자로 변환 (입력창용)
+        # [1] 데이터 전처리 (입력창용)
         def format_input(x):
             try:
                 val = float(x)
@@ -193,33 +194,32 @@ elif menu == "📝 데이터 입력 도우미":
         input_df['평가액'] = input_df['평가액'].apply(format_input)
 
         st.subheader("1️⃣ 금액 수정 (입력용)")
-        st.caption("👇 마이너스 금액은 '(-) 숫자' 형태로 표시됩니다. (색상은 지원되지 않음)")
+        st.caption("👇 마이너스 금액은 '(-) 숫자' 형태로 표시됩니다.")
         
         editable_cols = ['주체', '증권사', '구분', '종목명', '테마', '원금', '평가액']
         
+        # 정규식 수정: 공백( ) 포함 허용
         edited_df = st.data_editor(
             input_df[editable_cols],
             num_rows="dynamic",
             use_container_width=True,
             column_config={
-                # 정규식: 숫자, 콤마, 마이너스, 괄호, 공백 허용
                 "원금": st.column_config.TextColumn(validate="^[0-9, \-\(\)]+$"),
                 "평가액": st.column_config.TextColumn(validate="^[0-9, \-\(\)]+$"),
             }
         )
         
-        # [2] 후처리: 문자를 다시 숫자로 변환 (계산용)
+        # [2] 후처리 (계산용)
         def clean_currency_advanced(x):
             try:
-                # 괄호, (-), 콤마 등을 모두 제거하고 순수 숫자로 변환
+                # 공백과 콤마 제거가 핵심!
                 str_val = str(x).replace(',', '').replace(' ', '')
                 
-                # '(-)' 또는 '()' 패턴이 있으면 음수로 처리
                 if '(-)' in str_val or ('(' in str_val and ')' in str_val):
                     clean_str = str_val.replace('(-)', '').replace('(', '').replace(')', '')
                     return -float(clean_str)
                 elif '-' in str_val:
-                    return float(str_val) # 이미 마이너스 기호가 있는 경우
+                    return float(str_val)
                 
                 return float(str_val)
             except:
@@ -228,17 +228,15 @@ elif menu == "📝 데이터 입력 도우미":
         edited_df['평가액_num'] = edited_df['평가액'].apply(clean_currency_advanced)
         edited_df['원금_num'] = edited_df['원금'].apply(clean_currency_advanced)
         
-        # 평가손익 계산
         edited_df['평가손익'] = edited_df['평가액_num'] - edited_df['원금_num']
         
-        # [3] 결과 미리보기 (여기는 빨간색 가능!)
-        st.subheader("2️⃣ 결과 미리보기 (빨간색 적용됨)")
-        st.caption("👇 여기서 붉은색 글씨와 (-) 서식을 확인하세요.")
+        # [3] 결과 미리보기
+        st.subheader("2️⃣ 결과 미리보기")
         
         preview_df = edited_df[['종목명', '원금_num', '평가액_num', '평가손익']].copy()
         preview_df.columns = ['종목명', '원금', '평가액', '평가손익']
 
-        # --- 스타일 적용 함수 ---
+        # --- 스타일 함수 ---
         def style_red_neg(val):
             return 'color: red' if val < 0 else 'color: black'
 
@@ -246,7 +244,7 @@ elif menu == "📝 데이터 입력 도우미":
             if val < 0:
                 return f"(-) {abs(val):,.0f}"
             return f"{val:,.0f}"
-        # ---------------------
+        # ------------------
 
         st.dataframe(
             preview_df.style
@@ -255,7 +253,7 @@ elif menu == "📝 데이터 입력 도우미":
                 "평가액": fmt_custom,
                 "평가손익": fmt_custom
             })
-            .map(style_red_neg, subset=['평가손익']), # 평가손익 빨간색 처리
+            .map(style_red_neg, subset=['평가손익']),
             use_container_width=True
         )
 
@@ -272,7 +270,7 @@ elif menu == "📝 데이터 입력 도우미":
             
             try:
                 final_export_df = final_export_df[target_order]
-                st.success("✅ 데이터 생성 완료! 아래 내용을 복사하세요.")
+                st.success("✅ 데이터 생성 완료! 복사하세요.")
                 st.code(final_export_df.to_csv(index=False, header=False, sep='\t'), language='csv')
                 st.markdown(f"[👉 구글 시트 바로가기]({FIXED_URL})")
             except Exception as e:
