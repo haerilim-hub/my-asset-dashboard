@@ -49,7 +49,7 @@ def load_data(url):
 # --- 메인 화면 ---
 st.set_page_config(layout="wide", page_title="투자 자산 대시보드")
 
-# 사이드바 (메뉴 선택 삭제됨 -> 바로 권한 확인)
+# 사이드바 설정
 st.sidebar.header("🔒 접근 권한")
 input_password = st.sidebar.text_input("관리자 비밀번호", type="password")
 
@@ -117,7 +117,7 @@ elif df is not None:
 
     with tab1:
         if not final_df.empty:
-            # 선택된 기간 중 '가장 마지막 날짜' 기준
+            # 선택된 기간 중 '가장 마지막 날짜' 기준 현황
             latest_date = final_df['기준일자'].max()
             daily_df = final_df[final_df['기준일자'] == latest_date].copy()
             
@@ -183,6 +183,7 @@ elif df is not None:
         if not final_df.empty:
             st.caption(f"📌 조회 기간: {start_date} ~ {end_date}")
             
+            # 일자별 집계 (타임라인)
             timeline = final_df.groupby('기준일자')[['평가액', '원금']].sum().reset_index()
             
             timeline['평가손익'] = timeline['평가액'] - timeline['원금']
@@ -190,13 +191,13 @@ elif df is not None:
             mask = timeline['원금'] > 0
             timeline.loc[mask, '수익률'] = (timeline.loc[mask, '평가손익'] / timeline.loc[mask, '원금']) * 100
 
-            # 1. 자산 규모
+            # [그래프 1] 자산 규모
             st.subheader("💸 자산 규모 변동")
             fig_line = px.line(timeline, x='기준일자', y=['평가액', '원금'], markers=True)
             fig_line.update_xaxes(dtick="D1", tickformat="%Y-%m-%d")
             st.plotly_chart(fig_line, use_container_width=True)
             
-            # 2. 수익률 추이
+            # [그래프 2] 수익률 추이
             st.subheader("📉 일자별 수익률 추이 (%)")
             fig_roi = px.line(timeline, x='기준일자', y='수익률', markers=True)
             fig_roi.update_traces(texttemplate='%{y:.2f}%', textposition='top center')
@@ -204,10 +205,27 @@ elif df is not None:
             fig_roi.update_xaxes(dtick="D1", tickformat="%Y-%m-%d")
             st.plotly_chart(fig_roi, use_container_width=True)
             
-            # 3. 테마별 비중
-            st.subheader("🎨 테마별 비중 변화")
-            fig_area = px.area(final_df, x='기준일자', y='평가액', color='테마')
-            fig_area.update_xaxes(dtick="D1", tickformat="%Y-%m-%d")
-            st.plotly_chart(fig_area, use_container_width=True)
+            # [표] 테마별 비중 변화 (그래프 대체)
+            st.subheader("📋 일자별 테마 비중 (%)")
+            
+            # 1) 피벗 테이블 생성 (행: 날짜, 열: 테마, 값: 평가액)
+            pivot_df = final_df.pivot_table(index='기준일자', columns='테마', values='평가액', aggfunc='sum').fillna(0)
+            
+            # 2) 비중(%) 계산
+            pivot_pct = pivot_df.div(pivot_df.sum(axis=1), axis=0) * 100
+            
+            # 3) 날짜 내림차순 정렬 (최신 날짜가 위로)
+            pivot_pct = pivot_pct.sort_index(ascending=False)
+            
+            # 4) 날짜 포맷 변경
+            pivot_pct.index = pivot_pct.index.strftime('%Y-%m-%d')
+
+            # 5) 표 출력 (소수점 1자리 + 색상 강조)
+            st.dataframe(
+                pivot_pct.style
+                .format("{:.1f}%")
+                .background_gradient(cmap='Blues', axis=1), 
+                use_container_width=True
+            )
         else:
-                st.warning(f"선택하신 기간 ({start_date} ~ {end_date})에 해당하는 데이터가 없습니다.")
+            st.warning(f"선택하신 기간 ({start_date} ~ {end_date})에 해당하는 데이터가 없습니다.")
