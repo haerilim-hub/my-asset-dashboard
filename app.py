@@ -27,7 +27,6 @@ def load_data(url):
         df = pd.read_csv(csv_url)
         df.columns = df.columns.str.strip()
         
-        # 숫자 변환 로직 (공백/콤마/괄호 처리)
         cols_to_numeric = ['원금', '평가액', '평가손익']
         for col in cols_to_numeric:
             if col in df.columns:
@@ -64,7 +63,7 @@ if error_msg:
     st.error(error_msg)
 elif df is not None:
     
-    # 1. 권한 확인 및 기본 데이터 필터링
+    # 1. 권한 확인 및 필터링
     if input_password == ADMIN_PASSWORD:
         st.sidebar.success("🔓 관리자 모드")
         st.sidebar.subheader("🕵️‍♀️ 필터링")
@@ -78,7 +77,6 @@ elif df is not None:
             base_df = df
             display_title = "전체"
     else:
-        # 비밀번호 미입력 시 '공동' 계좌만 노출
         base_df = df[df['주체'] == '공동'] 
         display_title = "공동"
         if input_password != "":
@@ -106,7 +104,6 @@ elif df is not None:
         elif len(date_range) == 1:
             start_date = date_range[0]
     
-    # 기간 필터링 적용
     mask = (base_df['기준일자'].dt.date >= start_date) & (base_df['기준일자'].dt.date <= end_date)
     final_df = base_df.loc[mask]
 
@@ -117,7 +114,6 @@ elif df is not None:
 
     with tab1:
         if not final_df.empty:
-            # 선택된 기간 중 '가장 마지막 날짜' 기준 현황
             latest_date = final_df['기준일자'].max()
             daily_df = final_df[final_df['기준일자'] == latest_date].copy()
             
@@ -183,7 +179,6 @@ elif df is not None:
         if not final_df.empty:
             st.caption(f"📌 조회 기간: {start_date} ~ {end_date}")
             
-            # 일자별 집계 (타임라인)
             timeline = final_df.groupby('기준일자')[['평가액', '원금']].sum().reset_index()
             
             timeline['평가손익'] = timeline['평가액'] - timeline['원금']
@@ -191,13 +186,13 @@ elif df is not None:
             mask = timeline['원금'] > 0
             timeline.loc[mask, '수익률'] = (timeline.loc[mask, '평가손익'] / timeline.loc[mask, '원금']) * 100
 
-            # [그래프 1] 자산 규모
+            # 1. 자산 규모
             st.subheader("💸 자산 규모 변동")
             fig_line = px.line(timeline, x='기준일자', y=['평가액', '원금'], markers=True)
             fig_line.update_xaxes(dtick="D1", tickformat="%Y-%m-%d")
             st.plotly_chart(fig_line, use_container_width=True)
             
-            # [그래프 2] 수익률 추이
+            # 2. 수익률 추이
             st.subheader("📉 일자별 수익률 추이 (%)")
             fig_roi = px.line(timeline, x='기준일자', y='수익률', markers=True)
             fig_roi.update_traces(texttemplate='%{y:.2f}%', textposition='top center')
@@ -205,22 +200,25 @@ elif df is not None:
             fig_roi.update_xaxes(dtick="D1", tickformat="%Y-%m-%d")
             st.plotly_chart(fig_roi, use_container_width=True)
             
-            # [표] 테마별 비중 변화 (오류 해결: 배경색 기능 제거)
+            # 3. 테마별 비중 (표 + 상위 3개 강조)
             st.subheader("📋 일자별 테마 비중 (%)")
             
-            # 1) 피벗 테이블 생성
             pivot_df = final_df.pivot_table(index='기준일자', columns='테마', values='평가액', aggfunc='sum').fillna(0)
-            
-            # 2) 비중(%) 계산
             pivot_pct = pivot_df.div(pivot_df.sum(axis=1), axis=0) * 100
-            
-            # 3) 정렬 및 날짜 포맷
             pivot_pct = pivot_pct.sort_index(ascending=False)
             pivot_pct.index = pivot_pct.index.strftime('%Y-%m-%d')
 
-            # 4) 표 출력 (색상 코드 제거)
+            # ★ 상위 3개 하이라이트 함수 (오류 없음)
+            def highlight_top3(s):
+                # 1등부터 3등까지 찾기
+                is_top3 = s.rank(method='min', ascending=False) <= 3
+                # CSS 스타일 적용 (파란 배경, 굵은 글씨)
+                return ['background-color: #d4ebf2; color: #004085; font-weight: bold' if v else '' for v in is_top3]
+
             st.dataframe(
-                pivot_pct.style.format("{:.1f}%"), 
+                pivot_pct.style
+                .format("{:.1f}%")
+                .apply(highlight_top3, axis=1), # 행 단위로 적용
                 use_container_width=True
             )
         else:
