@@ -205,26 +205,22 @@ elif df is not None:
             fig_roi.update_xaxes(dtick="D1", tickformat="%Y-%m-%d")
             st.plotly_chart(fig_roi, use_container_width=True)
             
-            # [표] 테마별 비중 변화 (그래프 대체)
+            # [표] 테마별 비중 변화 (오류 해결: 배경색 기능 제거)
             st.subheader("📋 일자별 테마 비중 (%)")
             
-            # 1) 피벗 테이블 생성 (행: 날짜, 열: 테마, 값: 평가액)
+            # 1) 피벗 테이블 생성
             pivot_df = final_df.pivot_table(index='기준일자', columns='테마', values='평가액', aggfunc='sum').fillna(0)
             
             # 2) 비중(%) 계산
             pivot_pct = pivot_df.div(pivot_df.sum(axis=1), axis=0) * 100
             
-            # 3) 날짜 내림차순 정렬 (최신 날짜가 위로)
+            # 3) 정렬 및 날짜 포맷
             pivot_pct = pivot_pct.sort_index(ascending=False)
-            
-            # 4) 날짜 포맷 변경
             pivot_pct.index = pivot_pct.index.strftime('%Y-%m-%d')
 
-            # 5) 표 출력 (소수점 1자리 + 색상 강조)
+            # 4) 표 출력 (색상 코드 제거)
             st.dataframe(
-                pivot_pct.style
-                .format("{:.1f}%")
-                .background_gradient(cmap='Blues', axis=1), 
+                pivot_pct.style.format("{:.1f}%"), 
                 use_container_width=True
             )
         else:
