@@ -80,33 +80,50 @@ elif df is not None:
             st.sidebar.error("비밀번호 불일치")
 
     # -----------------------------------------------------------
-    # [핵심 수정] 시차 문제 해결 (서버시간 + 9시간 = 한국시간)
+    # [수정] 날짜 필터링 로직 개선 (데이터 기준)
     # -----------------------------------------------------------
     st.sidebar.divider()
     st.sidebar.subheader("📅 조회 기간 설정")
     period_option = st.sidebar.radio("기간 선택", ["전체", "이번주", "이번달", "올해", "직접 설정"])
     
-    # ★ 여기서 한국 시간으로 강제 변환합니다!
+    # 1. 한국 시간 기준 오늘
     now_kst = datetime.now() + timedelta(hours=9)
     today = now_kst.date()
-    
-    start_date = base_df['기준일자'].min().date()
-    end_date = today
 
-    if period_option == "이번주":
+    # 2. 데이터에 있는 '실제 날짜 범위' 확인
+    min_data_date = base_df['기준일자'].min().date()
+    max_data_date = base_df['기준일자'].max().date()
+    
+    # 기본값 설정
+    start_date = min_data_date
+    end_date = max_data_date  # ★ 핵심: 기본 종료일을 '데이터의 마지막 날'로 설정
+
+    if period_option == "전체":
+        # 전체 선택 시: 데이터 처음부터 끝까지 무조건 보여줌 (오늘 날짜 상관 X)
+        start_date = min_data_date
+        end_date = max_data_date
+
+    elif period_option == "이번주":
         start_date = today - timedelta(days=today.weekday())
+        end_date = today # 이번주는 '오늘'까지
+
     elif period_option == "이번달":
         start_date = today.replace(day=1)
+        end_date = today
+
     elif period_option == "올해":
         start_date = today.replace(month=1, day=1)
+        end_date = today
+
     elif period_option == "직접 설정":
-        date_range = st.sidebar.date_input("날짜 범위 선택", [start_date, end_date])
+        # 직접 설정 시 기본값은 데이터 전체 범위로 제안
+        date_range = st.sidebar.date_input("날짜 범위 선택", [min_data_date, max_data_date])
         if len(date_range) == 2:
             start_date, end_date = date_range
         elif len(date_range) == 1:
             start_date = date_range[0]
     
-    # 데이터 필터링
+    # 필터링 적용
     mask = (base_df['기준일자'].dt.date >= start_date) & (base_df['기준일자'].dt.date <= end_date)
     final_df = base_df.loc[mask]
 
@@ -117,6 +134,7 @@ elif df is not None:
 
     with tab1:
         if not final_df.empty:
+            # 선택된 기간 중 '가장 마지막 날짜' 데이터 표시
             latest_date = final_df['기준일자'].max()
             daily_df = final_df[final_df['기준일자'] == latest_date].copy()
             
