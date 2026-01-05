@@ -27,7 +27,6 @@ def load_data(url):
         df = pd.read_csv(csv_url)
         df.columns = df.columns.str.strip()
         
-        # 숫자 데이터 전처리 (콤마, 공백, 괄호 제거)
         cols_to_numeric = ['원금', '평가액', '평가손익']
         for col in cols_to_numeric:
             if col in df.columns:
@@ -49,7 +48,6 @@ def load_data(url):
 # --- 메인 화면 ---
 st.set_page_config(layout="wide", page_title="투자 자산 대시보드")
 
-# 사이드바 설정
 st.sidebar.header("🔒 접근 권한")
 input_password = st.sidebar.text_input("관리자 비밀번호", type="password")
 
@@ -57,14 +55,12 @@ if st.sidebar.button("🔄 데이터 새로고침"):
     st.cache_data.clear()
     st.rerun()
 
-# 데이터 로드
 df, error_msg = load_data(FIXED_URL)
 
 if error_msg:
     st.error(error_msg)
 elif df is not None:
     
-    # 1. 권한 확인 및 주체 필터링
     if input_password == ADMIN_PASSWORD:
         st.sidebar.success("🔓 관리자 모드")
         st.sidebar.subheader("🕵️‍♀️ 필터링")
@@ -78,18 +74,19 @@ elif df is not None:
             base_df = df
             display_title = "전체"
     else:
-        # 비밀번호 미입력 시 '공동' 계좌만 노출
         base_df = df[df['주체'] == '공동'] 
         display_title = "공동"
         if input_password != "":
             st.sidebar.error("비밀번호 불일치")
 
-    # 2. 기간 설정 필터링 (★ 시차 해결 로직 적용)
+    # -----------------------------------------------------------
+    # [핵심 수정] 시차 문제 해결 (서버시간 + 9시간 = 한국시간)
+    # -----------------------------------------------------------
     st.sidebar.divider()
     st.sidebar.subheader("📅 조회 기간 설정")
     period_option = st.sidebar.radio("기간 선택", ["전체", "이번주", "이번달", "올해", "직접 설정"])
     
-    # [핵심 수정] 서버 시간(UTC)에 9시간을 더해 한국 시간(KST)으로 변환
+    # 여기서 강제로 시간을 돌립니다!
     now_kst = datetime.now() + timedelta(hours=9)
     today = now_kst.date()
     
@@ -97,11 +94,11 @@ elif df is not None:
     end_date = today
 
     if period_option == "이번주":
-        start_date = today - timedelta(days=today.weekday()) # 월요일부터
+        start_date = today - timedelta(days=today.weekday())
     elif period_option == "이번달":
-        start_date = today.replace(day=1) # 1일부터
+        start_date = today.replace(day=1)
     elif period_option == "올해":
-        start_date = today.replace(month=1, day=1) # 1월 1일부터
+        start_date = today.replace(month=1, day=1)
     elif period_option == "직접 설정":
         date_range = st.sidebar.date_input("날짜 범위 선택", [start_date, end_date])
         if len(date_range) == 2:
@@ -109,7 +106,7 @@ elif df is not None:
         elif len(date_range) == 1:
             start_date = date_range[0]
     
-    # 기간 필터링 적용
+    # 데이터 필터링 (end_date가 오늘(한국시간)까지 포함되도록 설정)
     mask = (base_df['기준일자'].dt.date >= start_date) & (base_df['기준일자'].dt.date <= end_date)
     final_df = base_df.loc[mask]
 
@@ -120,7 +117,6 @@ elif df is not None:
 
     with tab1:
         if not final_df.empty:
-            # 선택된 기간 중 '가장 마지막 날짜' 기준 현황
             latest_date = final_df['기준일자'].max()
             daily_df = final_df[final_df['기준일자'] == latest_date].copy()
             
@@ -140,7 +136,6 @@ elif df is not None:
             
             st.divider()
             
-            # 파이차트 & 막대차트
             group_by = st.radio("차트 기준:", ['테마', '증권사', '종목명', '구분'], horizontal=True)
             if group_by in daily_df.columns:
                 grouped = daily_df.groupby(group_by)[['평가액', '원금']].sum().reset_index().sort_values('평가액', ascending=False)
@@ -155,7 +150,6 @@ elif df is not None:
             rank_option = st.radio("순위 기준:", ['종목별', '테마별'], horizontal=True)
             target_col = '종목명' if rank_option == '종목별' else '테마'
             
-            # 스타일링 함수
             def style_negative_red(val):
                 color = 'red' if val < 0 else 'black'
                 return f'color: {color}'
@@ -188,7 +182,6 @@ elif df is not None:
         if not final_df.empty:
             st.caption(f"📌 조회 기간: {start_date} ~ {end_date}")
             
-            # 일자별 집계 (타임라인)
             timeline = final_df.groupby('기준일자')[['평가액', '원금']].sum().reset_index()
             
             timeline['평가손익'] = timeline['평가액'] - timeline['원금']
@@ -196,13 +189,11 @@ elif df is not None:
             mask = timeline['원금'] > 0
             timeline.loc[mask, '수익률'] = (timeline.loc[mask, '평가손익'] / timeline.loc[mask, '원금']) * 100
 
-            # [그래프 1] 자산 규모 변동
             st.subheader("💸 자산 규모 변동")
             fig_line = px.line(timeline, x='기준일자', y=['평가액', '원금'], markers=True)
-            fig_line.update_xaxes(dtick="D1", tickformat="%Y-%m-%d") # 1일 간격 고정
+            fig_line.update_xaxes(dtick="D1", tickformat="%Y-%m-%d")
             st.plotly_chart(fig_line, use_container_width=True)
             
-            # [그래프 2] 수익률 추이
             st.subheader("📉 일자별 수익률 추이 (%)")
             fig_roi = px.line(timeline, x='기준일자', y='수익률', markers=True)
             fig_roi.update_traces(texttemplate='%{y:.2f}%', textposition='top center')
@@ -210,15 +201,13 @@ elif df is not None:
             fig_roi.update_xaxes(dtick="D1", tickformat="%Y-%m-%d")
             st.plotly_chart(fig_roi, use_container_width=True)
             
-            # [표] 테마별 비중 변화 (상위 3개 하이라이트)
             st.subheader("📋 일자별 테마 비중 (%)")
             
             pivot_df = final_df.pivot_table(index='기준일자', columns='테마', values='평가액', aggfunc='sum').fillna(0)
             pivot_pct = pivot_df.div(pivot_df.sum(axis=1), axis=0) * 100
-            pivot_pct = pivot_pct.sort_index(ascending=False) # 최신 날짜가 위로
+            pivot_pct = pivot_pct.sort_index(ascending=False)
             pivot_pct.index = pivot_pct.index.strftime('%Y-%m-%d')
 
-            # 상위 3개 셀 배경색 강조 함수 (오류 해결됨)
             def highlight_top3(s):
                 is_top3 = s.rank(method='min', ascending=False) <= 3
                 return ['background-color: #d4ebf2; color: #004085; font-weight: bold' if v else '' for v in is_top3]
