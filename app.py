@@ -86,7 +86,7 @@ elif df is not None:
     st.sidebar.subheader("📅 조회 기간 설정")
     period_option = st.sidebar.radio("기간 선택", ["전체", "이번주", "이번달", "올해", "직접 설정"])
     
-    # 여기서 강제로 시간을 돌립니다!
+    # ★ 여기서 한국 시간으로 강제 변환합니다!
     now_kst = datetime.now() + timedelta(hours=9)
     today = now_kst.date()
     
@@ -106,7 +106,7 @@ elif df is not None:
         elif len(date_range) == 1:
             start_date = date_range[0]
     
-    # 데이터 필터링 (end_date가 오늘(한국시간)까지 포함되도록 설정)
+    # 데이터 필터링
     mask = (base_df['기준일자'].dt.date >= start_date) & (base_df['기준일자'].dt.date <= end_date)
     final_df = base_df.loc[mask]
 
