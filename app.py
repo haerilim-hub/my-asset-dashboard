@@ -16,7 +16,7 @@ FIXED_URL = "https://docs.google.com/spreadsheets/d/1OTxV5LBaOZeRRDBlcXJrSLOyNsW
 st.set_page_config(layout="wide", page_title="투자 자산 대시보드")
 
 # ★ [확인용] 배너
-st.success("🎉 종목별 보기에서 '테마' 정보가 추가되었습니다!")
+st.success("🎉 그래프 X축이 '데이터 있는 날'만 나오도록 수정되었습니다!")
 
 # 데이터 로드 (캐시 제거)
 def load_data(url):
@@ -164,12 +164,11 @@ elif df is not None:
             st.divider()
             
             # ------------------------------------------------------------------
-            # ★ [수정됨] 수익 랭킹 표 (종목별 보기 시 '테마' 컬럼 추가)
+            # 수익 랭킹 표 (종목별 보기 시 '테마' 컬럼 추가)
             # ------------------------------------------------------------------
             st.subheader("🏆 수익 랭킹")
             rank_option = st.radio("순위 기준:", ['종목별', '테마별'], horizontal=True)
             
-            # 스타일링 함수
             def style_negative_red(val):
                 color = 'red' if val < 0 else 'black'
                 return f'color: {color}'
@@ -177,24 +176,19 @@ elif df is not None:
                 if val < 0: return f"(-) {abs(val):,.0f}"
                 return f"{val:,.0f}"
 
-            # 데이터 가공 로직 분기
             if rank_option == '종목별':
-                # 종목명과 테마를 같이 묶어서 집계 (테마 정보를 살리기 위함)
                 rank_df = daily_df.groupby(['종목명', '테마'])[['평가손익', '평가액', '원금']].sum().reset_index()
                 display_cols = ['종목명', '테마', '평가손익', '수익률(%)', '평가액']
             else:
-                # 테마별 집계
                 rank_df = daily_df.groupby('테마')[['평가손익', '평가액', '원금']].sum().reset_index()
                 display_cols = ['테마', '평가손익', '수익률(%)', '평가액']
             
-            # 공통 계산 및 정렬
             rank_df['수익률(%)'] = 0.0
             mask_r = rank_df['원금'] > 0
             rank_df.loc[mask_r, '수익률(%)'] = (rank_df.loc[mask_r, '평가손익'] / rank_df.loc[mask_r, '원금']) * 100
             
             rank_df = rank_df.sort_values(by='평가손익', ascending=False)
             
-            # 표 출력
             st.dataframe(
                 rank_df[display_cols].style
                 .format({
@@ -222,15 +216,23 @@ elif df is not None:
             mask = timeline['원금'] > 0
             timeline.loc[mask, '수익률'] = (timeline.loc[mask, '평가손익'] / timeline.loc[mask, '원금']) * 100
 
-            # 1. 자산 규모 변동
+            # -------------------------------------------------------
+            # 1. 자산 규모 변동 (그래프) - [수정] 데이터 있는 날만 표시
+            # -------------------------------------------------------
             st.subheader("💸 자산 규모 변동")
-            fig_line = px.line(timeline, x='기준일자', y=['평가액', '원금'], markers=True)
-            fig_line.update_xaxes(dtick="D1", tickformat="%Y-%m-%d")
+            
+            # [수정] 날짜를 문자열로 변환 (그래프 축에서 빈 날짜 제거)
+            timeline['날짜'] = timeline['기준일자'].dt.strftime('%Y-%m-%d')
+            
+            fig_line = px.line(timeline, x='날짜', y=['평가액', '원금'], markers=True)
+            # fig_line.update_xaxes(dtick="D1") # 이 옵션을 삭제하여 빈 날짜 제거
             st.plotly_chart(fig_line, use_container_width=True)
             
             st.divider()
 
-            # 2. 일자별 테마 수익률 (%)
+            # -------------------------------------------------------
+            # 2. 일자별 테마 수익률 (%) (표)
+            # -------------------------------------------------------
             st.subheader("📊 일자별 테마 수익률 (%)")
             
             roi_df = final_df.groupby(['기준일자', '테마'])[['원금', '평가액']].sum().reset_index()
@@ -274,7 +276,9 @@ elif df is not None:
 
             st.divider()
 
-            # 3. 일자별 테마 비중 (%)
+            # -------------------------------------------------------
+            # 3. 일자별 테마 비중 (%) (표)
+            # -------------------------------------------------------
             st.subheader("📋 일자별 테마 비중 (%)")
             
             pivot_df = final_df.pivot_table(index='기준일자', columns='테마', values='평가액', aggfunc='sum').fillna(0)
