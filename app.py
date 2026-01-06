@@ -16,7 +16,7 @@ FIXED_URL = "https://docs.google.com/spreadsheets/d/1OTxV5LBaOZeRRDBlcXJrSLOyNsW
 st.set_page_config(layout="wide", page_title="투자 자산 대시보드")
 
 # ★ [확인용] 배너
-st.success("🎉 순서 변경 & 수익률 음영 처리가 완료된 버전입니다!")
+st.success("🎉 일평균 추가 & 색상 통일이 완료된 버전입니다!")
 
 # 데이터 로드 (캐시 제거)
 def load_data(url):
@@ -216,7 +216,7 @@ elif df is not None:
             st.divider()
 
             # -------------------------------------------------------
-            # 2. 일자별 테마 수익률 (%) (표) - [순서 변경 & 음영 추가]
+            # 2. 일자별 테마 수익률 (%) (표) - [일평균 추가 & 음영]
             # -------------------------------------------------------
             st.subheader("📊 일자별 테마 수익률 (%)")
             
@@ -228,22 +228,35 @@ elif df is not None:
             
             # 피벗
             pivot_roi = roi_df.pivot_table(index='기준일자', columns='테마', values='수익률').fillna(0)
+            
+            # [추가] 일평균 수익률 계산 및 컬럼 맨 앞으로 이동
+            pivot_roi['일평균'] = pivot_roi.mean(axis=1)
+            cols = ['일평균'] + [c for c in pivot_roi.columns if c != '일평균']
+            pivot_roi = pivot_roi[cols]
+
             pivot_roi = pivot_roi.sort_index(ascending=False)
             pivot_roi.index = pivot_roi.index.strftime('%Y-%m-%d')
 
-            # ★ 수익률 하이라이트 함수 (상위 3개: 붉은색 / 하위 3개: 푸른색)
-            def highlight_best_worst(s):
-                # s는 하루치 테마별 수익률 시리즈
-                is_top3 = s.rank(method='min', ascending=False) <= 3  # 상위 3개
-                is_bottom3 = s.rank(method='min', ascending=True) <= 3 # 하위 3개
+            # ★ 수익률 하이라이트 함수
+            def highlight_best_worst_roi(s):
+                # '일평균'은 랭킹에서 제외하고 별도 스타일 적용
+                is_avg = s.index == '일평균'
+                
+                # 나머지 테마들끼리만 랭킹 산정
+                s_themes = s[~is_avg]
+                is_top3 = s_themes.rank(method='min', ascending=False) <= 3
+                is_bottom3 = s_themes.rank(method='min', ascending=True) <= 3
                 
                 styles = []
-                for val, top, bottom in zip(s, is_top3, is_bottom3):
-                    if top:
-                        # 상위: 연한 빨강 배경 + 진한 글씨
+                for idx, val in s.items():
+                    if idx == '일평균':
+                        # 일평균은 굵은 회색 배경
+                        styles.append('background-color: #f0f0f0; color: black; font-weight: bold; border-right: 2px solid gray')
+                    elif is_top3.get(idx, False):
+                        # 상위: 연한 빨강
                         styles.append('background-color: #ffe6e6; color: #b30000; font-weight: bold')
-                    elif bottom:
-                        # 하위: 연한 파랑 배경 + 진한 글씨
+                    elif is_bottom3.get(idx, False):
+                        # 하위: 연한 파랑 (색상 통일 타겟)
                         styles.append('background-color: #e6f2ff; color: #0000b3; font-weight: bold')
                     else:
                         styles.append('')
@@ -252,14 +265,14 @@ elif df is not None:
             st.dataframe(
                 pivot_roi.style
                 .format("{:.2f}%")
-                .apply(highlight_best_worst, axis=1), # 행 단위로 스타일 적용
+                .apply(highlight_best_worst_roi, axis=1), 
                 use_container_width=True
             )
 
             st.divider()
 
             # -------------------------------------------------------
-            # 3. 일자별 테마 비중 (%) (표) - [순서 변경]
+            # 3. 일자별 테마 비중 (%) (표) - [색상 통일]
             # -------------------------------------------------------
             st.subheader("📋 일자별 테마 비중 (%)")
             
@@ -268,15 +281,16 @@ elif df is not None:
             pivot_pct = pivot_pct.sort_index(ascending=False)
             pivot_pct.index = pivot_pct.index.strftime('%Y-%m-%d')
 
-            # 비중 상위 3개 하이라이트
-            def highlight_top3(s):
+            # ★ 비중 상위 3개 하이라이트 (수익률 하위 파란색과 동일하게!)
+            def highlight_top3_weight(s):
                 is_top3 = s.rank(method='min', ascending=False) <= 3
-                return ['background-color: #d4ebf2; color: #004085; font-weight: bold' if v else '' for v in is_top3]
+                # 수익률 표의 파란색(#e6f2ff)과 통일
+                return ['background-color: #e6f2ff; color: #0000b3; font-weight: bold' if v else '' for v in is_top3]
 
             st.dataframe(
                 pivot_pct.style
                 .format("{:.1f}%")
-                .apply(highlight_top3, axis=1), 
+                .apply(highlight_top3_weight, axis=1), 
                 use_container_width=True
             )
 
