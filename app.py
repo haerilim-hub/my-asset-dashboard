@@ -12,7 +12,13 @@ ADMIN_PASSWORD = "1855"
 # 👇 질문자님의 구글 시트 주소
 FIXED_URL = "https://docs.google.com/spreadsheets/d/1OTxV5LBaOZeRRDBlcXJrSLOyNsW_smIii08DYKpl6dI/edit?gid=644186025#gid=644186025"
 
-# [수정] 캐시 제거 (즉시 반영을 위해)
+# --- 메인 화면 ---
+st.set_page_config(layout="wide", page_title="투자 자산 대시보드")
+
+# ★★★ [확인용] 새 코드가 적용되었는지 확인하는 배너 ★★★
+st.success("🎉 새 코드가 정상적으로 적용되었습니다! (이 메시지가 보이면 성공)")
+
+# 캐시 제거 로직 적용
 def load_data(url):
     try:
         if "/d/" in url:
@@ -46,9 +52,6 @@ def load_data(url):
     except Exception as e:
         return None, f"오류 발생: {e}"
 
-# --- 메인 화면 ---
-st.set_page_config(layout="wide", page_title="투자 자산 대시보드")
-
 st.sidebar.header("🔒 접근 권한")
 input_password = st.sidebar.text_input("관리자 비밀번호", type="password")
 
@@ -62,7 +65,7 @@ if error_msg:
     st.error(error_msg)
 elif df is not None:
     
-    # [진단 기능] 데이터 상태 표시
+    # [진단 기능] 데이터 상태 표시 (사이드바 파란 박스)
     max_date_in_data = df['기준일자'].max().date()
     row_count = len(df)
     
