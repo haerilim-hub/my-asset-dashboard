@@ -16,7 +16,7 @@ FIXED_URL = "https://docs.google.com/spreadsheets/d/1OTxV5LBaOZeRRDBlcXJrSLOyNsW
 st.set_page_config(layout="wide", page_title="투자 자산 대시보드")
 
 # ★ [확인용] 배너
-st.success("🎉 그래프 X축이 '데이터 있는 날'만 나오도록 수정되었습니다!")
+st.success("🎉 그래프에서 빈 날짜가 완전히 삭제된 버전입니다!")
 
 # 데이터 로드 (캐시 제거)
 def load_data(url):
@@ -217,15 +217,19 @@ elif df is not None:
             timeline.loc[mask, '수익률'] = (timeline.loc[mask, '평가손익'] / timeline.loc[mask, '원금']) * 100
 
             # -------------------------------------------------------
-            # 1. 자산 규모 변동 (그래프) - [수정] 데이터 있는 날만 표시
+            # 1. 자산 규모 변동 (그래프) - [수정] 빈 날짜 제거 + 카테고리 축 강제 적용
             # -------------------------------------------------------
             st.subheader("💸 자산 규모 변동")
             
-            # [수정] 날짜를 문자열로 변환 (그래프 축에서 빈 날짜 제거)
+            # 날짜를 문자열로 변환 (YYYY-MM-DD 형식)
             timeline['날짜'] = timeline['기준일자'].dt.strftime('%Y-%m-%d')
             
             fig_line = px.line(timeline, x='날짜', y=['평가액', '원금'], markers=True)
-            # fig_line.update_xaxes(dtick="D1") # 이 옵션을 삭제하여 빈 날짜 제거
+            
+            # ★ 핵심 수정: X축을 '날짜'가 아닌 '카테고리'로 강제 인식시킴
+            # 이렇게 하면 그래프가 날짜 사이의 간격을 계산하지 않고, 그냥 순서대로 나열합니다.
+            fig_line.update_xaxes(type='category') 
+            
             st.plotly_chart(fig_line, use_container_width=True)
             
             st.divider()
