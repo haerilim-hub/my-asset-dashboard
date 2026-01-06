@@ -16,7 +16,7 @@ FIXED_URL = "https://docs.google.com/spreadsheets/d/1OTxV5LBaOZeRRDBlcXJrSLOyNsW
 st.set_page_config(layout="wide", page_title="투자 자산 대시보드")
 
 # ★ [확인용] 배너
-st.success("🎉 일평균 추가 & 색상 통일이 완료된 버전입니다!")
+st.success("🎉 종목별 보기에서 '테마' 정보가 추가되었습니다!")
 
 # 데이터 로드 (캐시 제거)
 def load_data(url):
@@ -162,10 +162,14 @@ elif df is not None:
                     st.plotly_chart(px.bar(grouped, x=group_by, y=['원금', '평가액'], barmode='group'), use_container_width=True)
             
             st.divider()
+            
+            # ------------------------------------------------------------------
+            # ★ [수정됨] 수익 랭킹 표 (종목별 보기 시 '테마' 컬럼 추가)
+            # ------------------------------------------------------------------
             st.subheader("🏆 수익 랭킹")
             rank_option = st.radio("순위 기준:", ['종목별', '테마별'], horizontal=True)
-            target_col = '종목명' if rank_option == '종목별' else '테마'
             
+            # 스타일링 함수
             def style_negative_red(val):
                 color = 'red' if val < 0 else 'black'
                 return f'color: {color}'
@@ -173,22 +177,35 @@ elif df is not None:
                 if val < 0: return f"(-) {abs(val):,.0f}"
                 return f"{val:,.0f}"
 
-            if target_col in daily_df.columns:
-                rank_df = daily_df.groupby(target_col)[['평가손익', '평가액', '원금']].sum().reset_index()
-                rank_df['수익률(%)'] = (rank_df['평가손익'] / rank_df['원금']) * 100
-                rank_df = rank_df.sort_values(by='평가손익', ascending=False)
-                
-                st.dataframe(
-                    rank_df[[target_col, '평가손익', '수익률(%)', '평가액']].style
-                    .format({
-                        '평가손익': format_custom,
-                        '평가액': format_custom,
-                        '수익률(%)': '{:.2f}%'
-                    })
-                    .map(style_negative_red, subset=['평가손익']),
-                    hide_index=True,
-                    use_container_width=True
-                )
+            # 데이터 가공 로직 분기
+            if rank_option == '종목별':
+                # 종목명과 테마를 같이 묶어서 집계 (테마 정보를 살리기 위함)
+                rank_df = daily_df.groupby(['종목명', '테마'])[['평가손익', '평가액', '원금']].sum().reset_index()
+                display_cols = ['종목명', '테마', '평가손익', '수익률(%)', '평가액']
+            else:
+                # 테마별 집계
+                rank_df = daily_df.groupby('테마')[['평가손익', '평가액', '원금']].sum().reset_index()
+                display_cols = ['테마', '평가손익', '수익률(%)', '평가액']
+            
+            # 공통 계산 및 정렬
+            rank_df['수익률(%)'] = 0.0
+            mask_r = rank_df['원금'] > 0
+            rank_df.loc[mask_r, '수익률(%)'] = (rank_df.loc[mask_r, '평가손익'] / rank_df.loc[mask_r, '원금']) * 100
+            
+            rank_df = rank_df.sort_values(by='평가손익', ascending=False)
+            
+            # 표 출력
+            st.dataframe(
+                rank_df[display_cols].style
+                .format({
+                    '평가손익': format_custom,
+                    '평가액': format_custom,
+                    '수익률(%)': '{:.2f}%'
+                })
+                .map(style_negative_red, subset=['평가손익']),
+                hide_index=True,
+                use_container_width=True
+            )
         else:
             st.warning(f"선택하신 기간 ({start_date} ~ {end_date})에 해당하는 데이터가 없습니다.")
 
@@ -205,9 +222,7 @@ elif df is not None:
             mask = timeline['원금'] > 0
             timeline.loc[mask, '수익률'] = (timeline.loc[mask, '평가손익'] / timeline.loc[mask, '원금']) * 100
 
-            # -------------------------------------------------------
-            # 1. 자산 규모 변동 (그래프)
-            # -------------------------------------------------------
+            # 1. 자산 규모 변동
             st.subheader("💸 자산 규모 변동")
             fig_line = px.line(timeline, x='기준일자', y=['평가액', '원금'], markers=True)
             fig_line.update_xaxes(dtick="D1", tickformat="%Y-%m-%d")
@@ -215,21 +230,16 @@ elif df is not None:
             
             st.divider()
 
-            # -------------------------------------------------------
-            # 2. 일자별 테마 수익률 (%) (표) - [일평균 추가 & 음영]
-            # -------------------------------------------------------
+            # 2. 일자별 테마 수익률 (%)
             st.subheader("📊 일자별 테마 수익률 (%)")
             
-            # 수익률 데이터 준비
             roi_df = final_df.groupby(['기준일자', '테마'])[['원금', '평가액']].sum().reset_index()
             roi_df['수익률'] = 0.0
             mask2 = roi_df['원금'] > 0
             roi_df.loc[mask2, '수익률'] = ((roi_df.loc[mask2, '평가액'] - roi_df.loc[mask2, '원금']) / roi_df.loc[mask2, '원금']) * 100
             
-            # 피벗
             pivot_roi = roi_df.pivot_table(index='기준일자', columns='테마', values='수익률').fillna(0)
             
-            # [추가] 일평균 수익률 계산 및 컬럼 맨 앞으로 이동
             pivot_roi['일평균'] = pivot_roi.mean(axis=1)
             cols = ['일평균'] + [c for c in pivot_roi.columns if c != '일평균']
             pivot_roi = pivot_roi[cols]
@@ -237,12 +247,8 @@ elif df is not None:
             pivot_roi = pivot_roi.sort_index(ascending=False)
             pivot_roi.index = pivot_roi.index.strftime('%Y-%m-%d')
 
-            # ★ 수익률 하이라이트 함수
             def highlight_best_worst_roi(s):
-                # '일평균'은 랭킹에서 제외하고 별도 스타일 적용
                 is_avg = s.index == '일평균'
-                
-                # 나머지 테마들끼리만 랭킹 산정
                 s_themes = s[~is_avg]
                 is_top3 = s_themes.rank(method='min', ascending=False) <= 3
                 is_bottom3 = s_themes.rank(method='min', ascending=True) <= 3
@@ -250,13 +256,10 @@ elif df is not None:
                 styles = []
                 for idx, val in s.items():
                     if idx == '일평균':
-                        # 일평균은 굵은 회색 배경
                         styles.append('background-color: #f0f0f0; color: black; font-weight: bold; border-right: 2px solid gray')
                     elif is_top3.get(idx, False):
-                        # 상위: 연한 빨강
                         styles.append('background-color: #ffe6e6; color: #b30000; font-weight: bold')
                     elif is_bottom3.get(idx, False):
-                        # 하위: 연한 파랑 (색상 통일 타겟)
                         styles.append('background-color: #e6f2ff; color: #0000b3; font-weight: bold')
                     else:
                         styles.append('')
@@ -271,9 +274,7 @@ elif df is not None:
 
             st.divider()
 
-            # -------------------------------------------------------
-            # 3. 일자별 테마 비중 (%) (표) - [색상 통일]
-            # -------------------------------------------------------
+            # 3. 일자별 테마 비중 (%)
             st.subheader("📋 일자별 테마 비중 (%)")
             
             pivot_df = final_df.pivot_table(index='기준일자', columns='테마', values='평가액', aggfunc='sum').fillna(0)
@@ -281,10 +282,8 @@ elif df is not None:
             pivot_pct = pivot_pct.sort_index(ascending=False)
             pivot_pct.index = pivot_pct.index.strftime('%Y-%m-%d')
 
-            # ★ 비중 상위 3개 하이라이트 (수익률 하위 파란색과 동일하게!)
             def highlight_top3_weight(s):
                 is_top3 = s.rank(method='min', ascending=False) <= 3
-                # 수익률 표의 파란색(#e6f2ff)과 통일
                 return ['background-color: #e6f2ff; color: #0000b3; font-weight: bold' if v else '' for v in is_top3]
 
             st.dataframe(
