@@ -12,13 +12,13 @@ ADMIN_PASSWORD = "1855"
 # 👇 질문자님의 구글 시트 주소
 FIXED_URL = "https://docs.google.com/spreadsheets/d/1OTxV5LBaOZeRRDBlcXJrSLOyNsW_smIii08DYKpl6dI/edit?gid=644186025#gid=644186025"
 
-# --- 메인 화면 ---
+# --- 메인 화면 설정 ---
 st.set_page_config(layout="wide", page_title="투자 자산 대시보드")
 
-# ★★★ [확인용] 새 코드가 적용되었는지 확인하는 배너 ★★★
-st.success("🎉 새 코드가 정상적으로 적용되었습니다! (이 메시지가 보이면 성공)")
+# ★ [확인용] 새 코드가 적용되었는지 확인하는 배너
+st.success("🎉 수익률 표 기능이 추가된 최신 버전입니다! (이 메시지가 보이면 성공)")
 
-# 캐시 제거 로직 적용
+# 데이터 로드 (캐시 제거 적용)
 def load_data(url):
     try:
         if "/d/" in url:
@@ -52,6 +52,7 @@ def load_data(url):
     except Exception as e:
         return None, f"오류 발생: {e}"
 
+# 사이드바 설정
 st.sidebar.header("🔒 접근 권한")
 input_password = st.sidebar.text_input("관리자 비밀번호", type="password")
 
@@ -65,7 +66,7 @@ if error_msg:
     st.error(error_msg)
 elif df is not None:
     
-    # [진단 기능] 데이터 상태 표시 (사이드바 파란 박스)
+    # [진단 기능] 데이터 상태 표시
     max_date_in_data = df['기준일자'].max().date()
     row_count = len(df)
     
@@ -91,7 +92,7 @@ elif df is not None:
             st.sidebar.error("비밀번호 불일치")
 
     # -----------------------------------------------------------
-    # [최종 수정] 날짜 필터링 로직 (데이터 우선)
+    # 날짜 필터링 로직 (데이터 우선 + 시차 보정)
     # -----------------------------------------------------------
     st.sidebar.divider()
     st.sidebar.subheader("📅 조회 기간 설정")
@@ -100,7 +101,6 @@ elif df is not None:
     now_kst = datetime.now() + timedelta(hours=9)
     today = now_kst.date()
 
-    # 데이터의 실제 범위
     min_data_date = base_df['기준일자'].min().date()
     max_data_date = base_df['기준일자'].max().date()
     
@@ -108,7 +108,6 @@ elif df is not None:
     end_date = max_data_date
 
     if period_option == "전체":
-        # 무조건 데이터 끝까지 보여줌
         start_date = min_data_date
         end_date = max_data_date
     elif period_option == "이번주":
@@ -202,18 +201,20 @@ elif df is not None:
         if not final_df.empty:
             st.caption(f"📌 조회 기간: {start_date} ~ {end_date}")
             
+            # 데이터 가공
             timeline = final_df.groupby('기준일자')[['평가액', '원금']].sum().reset_index()
-            
             timeline['평가손익'] = timeline['평가액'] - timeline['원금']
             timeline['수익률'] = 0.0
             mask = timeline['원금'] > 0
             timeline.loc[mask, '수익률'] = (timeline.loc[mask, '평가손익'] / timeline.loc[mask, '원금']) * 100
 
+            # 1. 자산 규모
             st.subheader("💸 자산 규모 변동")
             fig_line = px.line(timeline, x='기준일자', y=['평가액', '원금'], markers=True)
             fig_line.update_xaxes(dtick="D1", tickformat="%Y-%m-%d")
             st.plotly_chart(fig_line, use_container_width=True)
             
+            # 2. 수익률 추이
             st.subheader("📉 일자별 수익률 추이 (%)")
             fig_roi = px.line(timeline, x='기준일자', y='수익률', markers=True)
             fig_roi.update_traces(texttemplate='%{y:.2f}%', textposition='top center')
@@ -221,8 +222,10 @@ elif df is not None:
             fig_roi.update_xaxes(dtick="D1", tickformat="%Y-%m-%d")
             st.plotly_chart(fig_roi, use_container_width=True)
             
+            st.divider()
+
+            # 3. 테마 비중 (표)
             st.subheader("📋 일자별 테마 비중 (%)")
-            
             pivot_df = final_df.pivot_table(index='기준일자', columns='테마', values='평가액', aggfunc='sum').fillna(0)
             pivot_pct = pivot_df.div(pivot_df.sum(axis=1), axis=0) * 100
             pivot_pct = pivot_pct.sort_index(ascending=False)
@@ -238,5 +241,37 @@ elif df is not None:
                 .apply(highlight_top3, axis=1), 
                 use_container_width=True
             )
+
+            st.divider()
+
+            # ★ [추가된 기능] 4. 테마 수익률 (표)
+            st.subheader("📊 일자별 테마 수익률 (%)")
+            
+            # 날짜별/테마별 수익률 계산
+            roi_df = final_df.groupby(['기준일자', '테마'])[['원금', '평가액']].sum().reset_index()
+            roi_df['수익률'] = 0.0
+            mask2 = roi_df['원금'] > 0
+            roi_df.loc[mask2, '수익률'] = ((roi_df.loc[mask2, '평가액'] - roi_df.loc[mask2, '원금']) / roi_df.loc[mask2, '원금']) * 100
+            
+            # 피벗 테이블 생성
+            pivot_roi = roi_df.pivot_table(index='기준일자', columns='테마', values='수익률').fillna(0)
+            pivot_roi = pivot_roi.sort_index(ascending=False) # 최신 날짜 위로
+            pivot_roi.index = pivot_roi.index.strftime('%Y-%m-%d')
+
+            # 수익률 컬러링 함수 (빨강/파랑)
+            def color_roi(val):
+                if val > 0:
+                    return 'color: red'
+                elif val < 0:
+                    return 'color: blue'
+                return 'color: black'
+
+            st.dataframe(
+                pivot_roi.style
+                .format("{:.2f}%")
+                .map(color_roi), 
+                use_container_width=True
+            )
+
         else:
             st.warning(f"선택하신 기간 ({start_date} ~ {end_date})에 해당하는 데이터가 없습니다.")
