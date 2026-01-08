@@ -16,7 +16,7 @@ FIXED_URL = "https://docs.google.com/spreadsheets/d/1OTxV5LBaOZeRRDBlcXJrSLOyNsW
 st.set_page_config(layout="wide", page_title="투자 자산 대시보드")
 
 # ★ [확인용] 배너
-st.success("🎉 그래프에서 빈 날짜가 완전히 삭제된 버전입니다!")
+st.success("🎉 미국ETF 자동 구분(국내/직투) 기능이 적용되었습니다!")
 
 # 데이터 로드 (캐시 제거)
 def load_data(url):
@@ -46,6 +46,27 @@ def load_data(url):
             df['기준일자'] = pd.to_datetime(df['기준일자'])
         else:
             return None, "⚠️ '기준일자' 컬럼이 없습니다."
+        
+        # -----------------------------------------------------------
+        # ★ [추가된 로직] 미국ETF 자동 구분 (국내상장 vs 직투)
+        # -----------------------------------------------------------
+        # 국내 ETF 브랜드 키워드 목록
+        korean_etf_brands = ['KODEX', 'TIGER', 'ACE', 'KoAct', 'SOL', 'PLUS', 'HANARO', 'KBSTAR', 'ARIRANG']
+        
+        def classify_us_etf(row):
+            # '미국ETF'인 경우에만 로직 적용
+            if row['구분'] == '미국ETF':
+                # 종목명에 국내 브랜드 키워드가 포함되어 있는지 확인
+                is_domestic = any(brand in row['종목명'] for brand in korean_etf_brands)
+                if is_domestic:
+                    return '미국ETF(국내)'  # 🇰🇷 원화 투자
+                else:
+                    return '미국ETF(직투)'  # 💵 달러 투자
+            return row['구분'] # 나머지는 그대로
+
+        if '구분' in df.columns and '종목명' in df.columns:
+            df['구분'] = df.apply(classify_us_etf, axis=1)
+        # -----------------------------------------------------------
 
         return df, None
     except Exception as e:
@@ -216,27 +237,17 @@ elif df is not None:
             mask = timeline['원금'] > 0
             timeline.loc[mask, '수익률'] = (timeline.loc[mask, '평가손익'] / timeline.loc[mask, '원금']) * 100
 
-            # -------------------------------------------------------
-            # 1. 자산 규모 변동 (그래프) - [수정] 빈 날짜 제거 + 카테고리 축 강제 적용
-            # -------------------------------------------------------
+            # 1. 자산 규모 변동 (그래프) - [수정] 빈 날짜 제거
             st.subheader("💸 자산 규모 변동")
             
-            # 날짜를 문자열로 변환 (YYYY-MM-DD 형식)
             timeline['날짜'] = timeline['기준일자'].dt.strftime('%Y-%m-%d')
-            
             fig_line = px.line(timeline, x='날짜', y=['평가액', '원금'], markers=True)
-            
-            # ★ 핵심 수정: X축을 '날짜'가 아닌 '카테고리'로 강제 인식시킴
-            # 이렇게 하면 그래프가 날짜 사이의 간격을 계산하지 않고, 그냥 순서대로 나열합니다.
             fig_line.update_xaxes(type='category') 
-            
             st.plotly_chart(fig_line, use_container_width=True)
             
             st.divider()
 
-            # -------------------------------------------------------
             # 2. 일자별 테마 수익률 (%) (표)
-            # -------------------------------------------------------
             st.subheader("📊 일자별 테마 수익률 (%)")
             
             roi_df = final_df.groupby(['기준일자', '테마'])[['원금', '평가액']].sum().reset_index()
@@ -280,9 +291,7 @@ elif df is not None:
 
             st.divider()
 
-            # -------------------------------------------------------
             # 3. 일자별 테마 비중 (%) (표)
-            # -------------------------------------------------------
             st.subheader("📋 일자별 테마 비중 (%)")
             
             pivot_df = final_df.pivot_table(index='기준일자', columns='테마', values='평가액', aggfunc='sum').fillna(0)
