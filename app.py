@@ -16,7 +16,7 @@ FIXED_URL = "https://docs.google.com/spreadsheets/d/1OTxV5LBaOZeRRDBlcXJrSLOyNsW
 st.set_page_config(layout="wide", page_title="투자 자산 대시보드")
 
 # ★ [확인용] 배너
-st.success("🎉 미국ETF 자동 구분(국내/직투) 기능이 적용되었습니다!")
+st.success("🎉 수익률 계산 방식 통일 완료! (가중평균 적용)")
 
 # 데이터 로드 (캐시 제거)
 def load_data(url):
@@ -46,27 +46,6 @@ def load_data(url):
             df['기준일자'] = pd.to_datetime(df['기준일자'])
         else:
             return None, "⚠️ '기준일자' 컬럼이 없습니다."
-        
-        # -----------------------------------------------------------
-        # ★ [추가된 로직] 미국ETF 자동 구분 (국내상장 vs 직투)
-        # -----------------------------------------------------------
-        # 국내 ETF 브랜드 키워드 목록
-        korean_etf_brands = ['KODEX', 'TIGER', 'ACE', 'KoAct', 'SOL', 'PLUS', 'HANARO', 'KBSTAR', 'ARIRANG']
-        
-        def classify_us_etf(row):
-            # '미국ETF'인 경우에만 로직 적용
-            if row['구분'] == '미국ETF':
-                # 종목명에 국내 브랜드 키워드가 포함되어 있는지 확인
-                is_domestic = any(brand in row['종목명'] for brand in korean_etf_brands)
-                if is_domestic:
-                    return '미국ETF(국내)'  # 🇰🇷 원화 투자
-                else:
-                    return '미국ETF(직투)'  # 💵 달러 투자
-            return row['구분'] # 나머지는 그대로
-
-        if '구분' in df.columns and '종목명' in df.columns:
-            df['구분'] = df.apply(classify_us_etf, axis=1)
-        # -----------------------------------------------------------
 
         return df, None
     except Exception as e:
@@ -184,9 +163,6 @@ elif df is not None:
             
             st.divider()
             
-            # ------------------------------------------------------------------
-            # 수익 랭킹 표 (종목별 보기 시 '테마' 컬럼 추가)
-            # ------------------------------------------------------------------
             st.subheader("🏆 수익 랭킹")
             rank_option = st.radio("순위 기준:", ['종목별', '테마별'], horizontal=True)
             
@@ -230,85 +206,14 @@ elif df is not None:
         if not final_df.empty:
             st.caption(f"📌 조회 기간: {start_date} ~ {end_date}")
             
-            # 데이터 가공
             timeline = final_df.groupby('기준일자')[['평가액', '원금']].sum().reset_index()
             timeline['평가손익'] = timeline['평가액'] - timeline['원금']
             timeline['수익률'] = 0.0
             mask = timeline['원금'] > 0
             timeline.loc[mask, '수익률'] = (timeline.loc[mask, '평가손익'] / timeline.loc[mask, '원금']) * 100
 
-            # 1. 자산 규모 변동 (그래프) - [수정] 빈 날짜 제거
+            # 1. 자산 규모 변동
             st.subheader("💸 자산 규모 변동")
-            
-            timeline['날짜'] = timeline['기준일자'].dt.strftime('%Y-%m-%d')
-            fig_line = px.line(timeline, x='날짜', y=['평가액', '원금'], markers=True)
-            fig_line.update_xaxes(type='category') 
-            st.plotly_chart(fig_line, use_container_width=True)
-            
-            st.divider()
-
-            # 2. 일자별 테마 수익률 (%) (표)
-            st.subheader("📊 일자별 테마 수익률 (%)")
-            
-            roi_df = final_df.groupby(['기준일자', '테마'])[['원금', '평가액']].sum().reset_index()
-            roi_df['수익률'] = 0.0
-            mask2 = roi_df['원금'] > 0
-            roi_df.loc[mask2, '수익률'] = ((roi_df.loc[mask2, '평가액'] - roi_df.loc[mask2, '원금']) / roi_df.loc[mask2, '원금']) * 100
-            
-            pivot_roi = roi_df.pivot_table(index='기준일자', columns='테마', values='수익률').fillna(0)
-            
-            pivot_roi['일평균'] = pivot_roi.mean(axis=1)
-            cols = ['일평균'] + [c for c in pivot_roi.columns if c != '일평균']
-            pivot_roi = pivot_roi[cols]
-
-            pivot_roi = pivot_roi.sort_index(ascending=False)
-            pivot_roi.index = pivot_roi.index.strftime('%Y-%m-%d')
-
-            def highlight_best_worst_roi(s):
-                is_avg = s.index == '일평균'
-                s_themes = s[~is_avg]
-                is_top3 = s_themes.rank(method='min', ascending=False) <= 3
-                is_bottom3 = s_themes.rank(method='min', ascending=True) <= 3
-                
-                styles = []
-                for idx, val in s.items():
-                    if idx == '일평균':
-                        styles.append('background-color: #f0f0f0; color: black; font-weight: bold; border-right: 2px solid gray')
-                    elif is_top3.get(idx, False):
-                        styles.append('background-color: #ffe6e6; color: #b30000; font-weight: bold')
-                    elif is_bottom3.get(idx, False):
-                        styles.append('background-color: #e6f2ff; color: #0000b3; font-weight: bold')
-                    else:
-                        styles.append('')
-                return styles
-
-            st.dataframe(
-                pivot_roi.style
-                .format("{:.2f}%")
-                .apply(highlight_best_worst_roi, axis=1), 
-                use_container_width=True
-            )
-
-            st.divider()
-
-            # 3. 일자별 테마 비중 (%) (표)
-            st.subheader("📋 일자별 테마 비중 (%)")
-            
-            pivot_df = final_df.pivot_table(index='기준일자', columns='테마', values='평가액', aggfunc='sum').fillna(0)
-            pivot_pct = pivot_df.div(pivot_df.sum(axis=1), axis=0) * 100
-            pivot_pct = pivot_pct.sort_index(ascending=False)
-            pivot_pct.index = pivot_pct.index.strftime('%Y-%m-%d')
-
-            def highlight_top3_weight(s):
-                is_top3 = s.rank(method='min', ascending=False) <= 3
-                return ['background-color: #e6f2ff; color: #0000b3; font-weight: bold' if v else '' for v in is_top3]
-
-            st.dataframe(
-                pivot_pct.style
-                .format("{:.1f}%")
-                .apply(highlight_top3_weight, axis=1), 
-                use_container_width=True
-            )
-
-        else:
-            st.warning(f"선택하신 기간 ({start_date} ~ {end_date})에 해당하는 데이터가 없습니다.")
+            fig_line = px.line(timeline, x='기준일자', y=['평가액', '원금'], markers=True)
+            fig_line.update_xaxes(dtick="D1", tickformat="%Y-%m-%d")
+            st.plotly_chart(fig
